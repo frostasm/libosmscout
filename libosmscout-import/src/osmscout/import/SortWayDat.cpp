@@ -331,6 +331,8 @@ namespace osmscout {
                               save)) {
       return false;
     }
+    // WARNING: skip RemoveRedundantNodes step - which removes the necessary nodes from the ways
+    return true;
 
     if (!RemoveRedundantNodes(progress,
                               offset,
