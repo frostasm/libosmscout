@@ -1785,7 +1785,6 @@ namespace osmscout {
           continue;
         }
 
-        std::cout << way->GetType()->GetName() << std::endl;
         for (size_t i=0;  i<way->nodes.size(); i++) {
           double distance=sqrt((way->nodes[i].GetLat()-lat)*(way->nodes[i].GetLat()-lat)+
                                (way->nodes[i].GetLon()-lon)*(way->nodes[i].GetLon()-lon));
@@ -1798,7 +1797,6 @@ namespace osmscout {
           }
         }
       }
-      std::cout << "--> finis <--" << std::endl;
       return true;
   }
 }
