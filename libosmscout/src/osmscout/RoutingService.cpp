@@ -1008,7 +1008,8 @@ namespace osmscout {
         size_t                  targetNodeIndex;
         osmscout::ObjectFileRef targetObject;
 
-        if (!GetClosestRoutableNode(etap.GetLat(),
+        if (!GetClosestRoutableNode(profile,
+                                    etap.GetLat(),
                                     etap.GetLon(),
                                     vehicle,
                                     radius,
@@ -1627,6 +1628,34 @@ namespace osmscout {
     }
   }
 
+  class FakeRoutingProfile : public AbstractRoutingProfile {
+  public:
+      FakeRoutingProfile(const TypeConfigRef& typeConfig)
+          : AbstractRoutingProfile(typeConfig)
+      {}
+
+      bool CanUse(const Area&) const override { return true;  }
+      bool CanUse(const Way&) const override { return true; }
+      virtual double GetCosts(const RouteNode&, const std::vector<ObjectVariantData>&,
+                              size_t) const override { assert(false); }
+      virtual double GetCosts(const Area&, double distance) const override { return distance; }
+      virtual double GetCosts(const Way&, double distance)  const override { return distance; }
+      virtual double GetCosts(double distance)  const override { return distance; }
+      virtual double GetTime(const Area&, double distance)  const override { return distance; }
+      virtual double GetTime(const Way&, double distance)  const override { return distance; }
+  };
+
+  bool RoutingService::GetClosestRoutableNode(double lat,
+                                              double lon,
+                                              const osmscout::Vehicle& vehicle,
+                                              double radius,
+                                              osmscout::ObjectFileRef& object,
+                                              size_t& nodeIndex) const
+  {
+      FakeRoutingProfile fakeRoutingProfile(database->GetTypeConfig());
+      return GetClosestRoutableNode(fakeRoutingProfile, lat, lon, vehicle, radius, object, nodeIndex);
+  }
+
   /**
    * Returns the closed routeable object (area or way) relative
    * to the given coordinate.
@@ -1637,6 +1666,8 @@ namespace osmscout {
    * @note The actual object may not be within the given radius
    * due to internal search index resolution.
    *
+   * @param profile
+   *    Profile to use (use GetCosts to determine closest node)
    * @param lat
    *    Latitude value of the search center
    * @param lon
@@ -1653,123 +1684,121 @@ namespace osmscout {
    *    The index of the closed node to the search center.
    * @return
    */
-  bool RoutingService::GetClosestRoutableNode(double lat,
-                                              double lon,
-                                              const osmscout::Vehicle& vehicle,
-                                              double radius,
-                                              osmscout::ObjectFileRef& object,
-                                              size_t& nodeIndex) const
+
+  bool RoutingService::GetClosestRoutableNode(const RoutingProfile &profile, double lat, double lon, const Vehicle &vehicle, double radius, ObjectFileRef &object, size_t &nodeIndex) const
   {
-    object.Invalidate();
-    nodeIndex=std::numeric_limits<size_t>::max();
+      object.Invalidate();
+      nodeIndex=std::numeric_limits<size_t>::max();
 
-    TypeConfigRef    typeConfig=database->GetTypeConfig();
-    AreaAreaIndexRef areaAreaIndex=database->GetAreaAreaIndex();
-    AreaWayIndexRef  areaWayIndex=database->GetAreaWayIndex();
-    AreaDataFileRef  areaDataFile=database->GetAreaDataFile();
-    WayDataFileRef   wayDataFile=database->GetWayDataFile();
+      TypeConfigRef    typeConfig=database->GetTypeConfig();
+      AreaAreaIndexRef areaAreaIndex=database->GetAreaAreaIndex();
+      AreaWayIndexRef  areaWayIndex=database->GetAreaWayIndex();
+      AreaDataFileRef  areaDataFile=database->GetAreaDataFile();
+      WayDataFileRef   wayDataFile=database->GetWayDataFile();
 
-    if (!typeConfig ||
-        !areaAreaIndex ||
-        !areaWayIndex ||
-        !areaDataFile ||
-        !wayDataFile) {
-      log.Error() << "At least one index file is invalid!";
-      return false;
-    }
-
-    GeoBox      boundingBox=GeoBox::BoxByCenterAndRadius(GeoCoord(lat,lon),radius);
-    TypeInfoSet wayRoutableTypes;
-    TypeInfoSet areaRoutableTypes;
-    TypeInfoSet wayLoadedTypes;
-    TypeInfoSet areaLoadedTypes;
-
-    for (const auto& type : database->GetTypeConfig()->GetTypes()) {
-      if (!type->GetIgnore() &&
-          type->CanRoute(vehicle)) {
-        if (type->CanBeWay()) {
-          wayRoutableTypes.Set(type);
-        }
-
-        if (type->CanBeArea()) {
-          areaRoutableTypes.Set(type);
-        }
-      }
-    }
-
-    std::vector<FileOffset>        wayWayOffsets;
-    std::vector<DataBlockSpan>     wayAreaSpans;
-    std::vector<osmscout::AreaRef> areas;
-    std::vector<osmscout::WayRef>  ways;
-
-    if (!areaWayIndex->GetOffsets(boundingBox,
-                                  wayRoutableTypes,
-                                  wayWayOffsets,
-                                  wayLoadedTypes)) {
-      log.Error() << "Error getting ways from area way index!";
-    }
-
-    if (!areaAreaIndex->GetAreasInArea(*database->GetTypeConfig(),
-                                       boundingBox,
-                                       std::numeric_limits<size_t>::max(),
-                                       areaRoutableTypes,
-                                       wayAreaSpans,
-                                       areaLoadedTypes)) {
-      log.Error() << "Error getting areas from area area index!";
-    }
-
-    std::sort(wayWayOffsets.begin(),
-              wayWayOffsets.end());
-
-    if (!wayDataFile->GetByOffset(wayWayOffsets,
-                                  ways)) {
-      log.Error() << "Error reading ways in area!";
-      return false;
-    }
-
-    if (!areaDataFile->GetByBlockSpans(wayAreaSpans,
-                                       areas)) {
-      log.Error() << "Error reading areas in area!";
-      return false;
-    }
-
-    double minDistance=std::numeric_limits<double>::max();
-
-    for (const auto& area : areas) {
-      if (!HasNodeWithId(area->rings[0].nodes)) {
-        continue;
+      if (!typeConfig ||
+          !areaAreaIndex ||
+          !areaWayIndex ||
+          !areaDataFile ||
+          !wayDataFile) {
+        log.Error() << "At least one index file is invalid!";
+        return false;
       }
 
-      for (size_t i=0; i<area->rings[0].nodes.size(); i++) {
-        double distance=sqrt((area->rings[0].nodes[i].GetLat()-lat)*(area->rings[0].nodes[i].GetLat()-lat)+
-                             (area->rings[0].nodes[i].GetLon()-lon)*(area->rings[0].nodes[i].GetLon()-lon));
+      GeoBox      boundingBox=GeoBox::BoxByCenterAndRadius(GeoCoord(lat,lon),radius);
+      TypeInfoSet wayRoutableTypes;
+      TypeInfoSet areaRoutableTypes;
+      TypeInfoSet wayLoadedTypes;
+      TypeInfoSet areaLoadedTypes;
 
-        if (distance<minDistance) {
-          minDistance=distance;
+      for (const auto& type : database->GetTypeConfig()->GetTypes()) {
+        if (!type->GetIgnore() &&
+            type->CanRoute(vehicle)) {
+          if (type->CanBeWay()) {
+            wayRoutableTypes.Set(type);
+          }
 
-          object.Set(area->GetFileOffset(),osmscout::refArea);
-          nodeIndex=i;
+          if (type->CanBeArea()) {
+            areaRoutableTypes.Set(type);
+          }
         }
       }
-    }
 
-    for (const auto& way : ways) {
-      if (!HasNodeWithId(way->nodes)) {
-        continue;
+      std::vector<FileOffset>        wayWayOffsets;
+      std::vector<DataBlockSpan>     wayAreaSpans;
+      std::vector<osmscout::AreaRef> areas;
+      std::vector<osmscout::WayRef>  ways;
+
+      if (!areaWayIndex->GetOffsets(boundingBox,
+                                    wayRoutableTypes,
+                                    wayWayOffsets,
+                                    wayLoadedTypes)) {
+        log.Error() << "Error getting ways from area way index!";
       }
 
-      for (size_t i=0;  i<way->nodes.size(); i++) {
-        double distance=sqrt((way->nodes[i].GetLat()-lat)*(way->nodes[i].GetLat()-lat)+
-                             (way->nodes[i].GetLon()-lon)*(way->nodes[i].GetLon()-lon));
-        if (distance<minDistance) {
-          minDistance=distance;
+      if (!areaAreaIndex->GetAreasInArea(*database->GetTypeConfig(),
+                                         boundingBox,
+                                         std::numeric_limits<size_t>::max(),
+                                         areaRoutableTypes,
+                                         wayAreaSpans,
+                                         areaLoadedTypes)) {
+        log.Error() << "Error getting areas from area area index!";
+      }
 
-          object.Set(way->GetFileOffset(),osmscout::refWay);
-          nodeIndex=i;
+      std::sort(wayWayOffsets.begin(),
+                wayWayOffsets.end());
+
+      if (!wayDataFile->GetByOffset(wayWayOffsets,
+                                    ways)) {
+        log.Error() << "Error reading ways in area!";
+        return false;
+      }
+
+      if (!areaDataFile->GetByBlockSpans(wayAreaSpans,
+                                         areas)) {
+        log.Error() << "Error reading areas in area!";
+        return false;
+      }
+
+      double minDistance=std::numeric_limits<double>::max();
+
+      for (const auto& area : areas) {
+        if (!HasNodeWithId(area->rings[0].nodes)) {
+          continue;
+        }
+
+        for (size_t i=0; i<area->rings[0].nodes.size(); i++) {
+          double distance=sqrt((area->rings[0].nodes[i].GetLat()-lat)*(area->rings[0].nodes[i].GetLat()-lat)+
+                               (area->rings[0].nodes[i].GetLon()-lon)*(area->rings[0].nodes[i].GetLon()-lon));
+          distance = profile.GetCosts(*area, distance);
+          if (distance<minDistance) {
+            minDistance=distance;
+
+            object.Set(area->GetFileOffset(),osmscout::refArea);
+            nodeIndex=i;
+          }
         }
       }
-    }
 
-    return true;
+      for (const osmscout::WayRef& way : ways) {
+        if (!HasNodeWithId(way->nodes)) {
+          continue;
+        }
+
+        std::cout << way->GetType()->GetName() << std::endl;
+        for (size_t i=0;  i<way->nodes.size(); i++) {
+          double distance=sqrt((way->nodes[i].GetLat()-lat)*(way->nodes[i].GetLat()-lat)+
+                               (way->nodes[i].GetLon()-lon)*(way->nodes[i].GetLon()-lon));
+          distance = profile.GetCosts(*way, distance);
+          if (distance < minDistance) {
+            minDistance=distance;
+
+            object.Set(way->GetFileOffset(),osmscout::refWay);
+            nodeIndex=i;
+          }
+        }
+      }
+      std::cout << "--> finis <--" << std::endl;
+      return true;
   }
 }

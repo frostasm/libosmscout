@@ -275,39 +275,46 @@ namespace osmscout {
 
     TypeConfigRef GetTypeConfig() const;
 
-    bool CalculateRoute(const RoutingProfile& profile,
+    virtual bool CalculateRoute(const RoutingProfile& profile,
                         const ObjectFileRef& startObject,
                         size_t startNodeIndex,
                         const ObjectFileRef& targetObject,
                         size_t targetNodeIndex,
                         RouteData& route);
 
-    bool CalculateRoute(const RoutingProfile& profile,
+    virtual bool CalculateRoute(const RoutingProfile& profile,
                         Vehicle vehicle,
                         double radius,
                         std::vector<GeoCoord> via,
                         RouteData& route);
 
-    bool TransformRouteDataToWay(const RouteData& data,
+    virtual bool TransformRouteDataToWay(const RouteData& data,
                                  Way& way);
 
-    bool TransformRouteDataToPoints(const RouteData& data,
+    virtual bool TransformRouteDataToPoints(const RouteData& data,
                                     std::list<Point>& points);
 
-    bool TransformRouteDataToRouteDescription(const RouteData& data,
+    virtual bool TransformRouteDataToRouteDescription(const RouteData& data,
                                               RouteDescription& description);
 
 #ifdef SWIG
     %apply ObjectFileRef& OUTPUT {ObjectFileRef& object};
     %apply long& OUTPUT {size_t& nodeIndex};
 #endif
-    bool GetClosestRoutableNode(double lat,
-                                double lon,
-                                const Vehicle& vehicle,
-                                double radius,
-                                ObjectFileRef& object,
-                                size_t& nodeIndex) const;
+    virtual bool GetClosestRoutableNode(double lat,
+                                        double lon,
+                                        const Vehicle& vehicle,
+                                        double radius,
+                                        ObjectFileRef& object,
+                                        size_t& nodeIndex) const;
 
+    virtual bool GetClosestRoutableNode(const RoutingProfile& profile,
+                                        double lat,
+                                        double lon,
+                                        const Vehicle& vehicle,
+                                        double radius,
+                                        ObjectFileRef& object,
+                                        size_t& nodeIndex) const;
     void DumpStatistics();
   };
 
